@@ -19,7 +19,7 @@ var isRequest = function (stream) {
   return stream.setHeader && isFn(stream.abort)
 }
 
-var destroyer = function (stream, reading, writing, callback) {
+var destroyer = function (toDestroy, stream, reading, writing, callback) {
   callback = once(callback)
 
   var closed = false
@@ -27,11 +27,13 @@ var destroyer = function (stream, reading, writing, callback) {
     closed = true
   })
 
-  eos(stream, {readable: reading, writable: writing}, function (err) {
+  var _destroy = eos(stream, {readable: reading, writable: writing}, function (err) {
     if (err) return callback(err)
     closed = true
     callback()
   })
+
+  toDestroy.push(_destroy)
 
   var destroyed = false
   return function (err) {
@@ -56,27 +58,44 @@ var pipe = function (from, to) {
   return from.pipe(to)
 }
 
-var pump = function () {
-  var streams = Array.prototype.slice.call(arguments)
-  var callback = isFn(streams[streams.length - 1] || noop) && streams.pop() || noop
+class Pump {
 
-  if (Array.isArray(streams[0])) streams = streams[0]
-  if (streams.length < 2) throw new Error('pump requires two streams per minimum')
+  constructor() {
+    this._toDestroy = [];
+  }
 
-  var error
-  var destroys = streams.map(function (stream, i) {
-    var reading = i < streams.length - 1
-    var writing = i > 0
-    return destroyer(stream, reading, writing, function (err) {
-      if (!error) error = err
-      if (err) destroys.forEach(call)
-      if (reading) return
-      destroys.forEach(call)
-      callback(error)
+  pump () {
+    var streams = Array.prototype.slice.call(arguments)
+    var callback = isFn(streams[streams.length - 1] || noop) && streams.pop() || noop
+
+    if (Array.isArray(streams[0])) streams = streams[0]
+    if (streams.length < 2) throw new Error('pump requires two streams per minimum')
+
+    var self = this;
+    var error
+    var destroys = streams.map(function (stream, i) {
+      var reading = i < streams.length - 1
+      var writing = i > 0
+      return destroyer(self._toDestroy, stream, reading, writing, function (err) {
+        if (!error) error = err
+        if (err) destroys.forEach(call)
+        if (reading) return
+        destroys.forEach(call)
+        callback(error)
+      })
     })
-  })
+    
+    return streams.reduce(pipe)
+  }
 
-  return streams.reduce(pipe)
+  forceDestroy() {
+    if (this._toDestroy) {
+      for (const f of this._toDestroy) {
+        f();
+      }
+    }
+  }
+
 }
 
-module.exports = pump
+module.exports = Pump

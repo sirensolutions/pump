@@ -1,4 +1,4 @@
-var pump = require('./index')
+var Pump = require('./index')
 
 var rs = require('fs').createReadStream('/dev/random')
 var ws = require('fs').createWriteStream('/dev/null')
@@ -35,7 +35,8 @@ rs.on('close', function () {
   check()
 })
 
-var res = pump(rs, toHex(), toHex(), toHex(), ws, function () {
+var pump = new Pump();
+var res = pump.pump(rs, toHex(), toHex(), toHex(), ws, function () {
   callbackCalled = true
   check()
 })
